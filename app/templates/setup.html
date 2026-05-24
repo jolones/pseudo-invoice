@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Setup — {{ app_name }}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50 min-h-screen flex items-center justify-center">
+  <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-8 w-full max-w-sm">
+    <h1 class="text-xl font-semibold text-gray-900 mb-1">{{ app_name }}</h1>
+    <p class="text-sm text-gray-500 mb-6">First-time setup. Choose a shared password for your team.</p>
+
+    {% if error %}
+      <div class="bg-red-50 border border-red-200 text-red-800 rounded px-4 py-3 text-sm mb-4">
+        {{ error }}
+      </div>
+    {% endif %}
+
+    <form action="/setup" method="post" class="space-y-4">
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Choose a password</label>
+        <input type="password" name="password" required autofocus
+          class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Confirm password</label>
+        <input type="password" name="confirm" required
+          class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+      </div>
+      <button type="submit"
+        class="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium rounded px-4 py-2 text-sm transition-colors">
+        Set password and continue
+      </button>
+    </form>
+  </div>
+</body>
+</html>

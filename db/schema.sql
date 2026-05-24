@@ -1,11 +1,10 @@
 -- Pseudo-invoice tool — SQLite schema
 -- Applied on startup if tables don't exist (via executescript).
 
-CREATE TABLE IF NOT EXISTS users (
-    id          INTEGER PRIMARY KEY,
-    email       TEXT UNIQUE NOT NULL,
-    name        TEXT NOT NULL,
-    created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+-- Stores the hashed shared password (key='password_hash')
+CREATE TABLE IF NOT EXISTS settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS interim_invoices (
@@ -25,7 +24,7 @@ CREATE TABLE IF NOT EXISTS interim_invoices (
     promoted_syrinx_order_id TEXT,
     voided_at                TIMESTAMP,
     voided_reason            TEXT,
-    created_by               INTEGER REFERENCES users(id),
+    created_by_name          TEXT,
     created_at               TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at               TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -43,22 +42,17 @@ CREATE TABLE IF NOT EXISTS interim_invoice_lines (
 );
 
 CREATE TABLE IF NOT EXISTS invoice_events (
-    id             INTEGER PRIMARY KEY,
-    invoice_id     INTEGER NOT NULL REFERENCES interim_invoices(id) ON DELETE CASCADE,
-    actor_user_id  INTEGER REFERENCES users(id),
-    action         TEXT NOT NULL,
-    details_json   TEXT,
-    created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    id          INTEGER PRIMARY KEY,
+    invoice_id  INTEGER NOT NULL REFERENCES interim_invoices(id) ON DELETE CASCADE,
+    actor_name  TEXT,
+    action      TEXT NOT NULL,
+    details_json TEXT,
+    created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS sessions (
     token       TEXT PRIMARY KEY,
-    user_id     INTEGER NOT NULL REFERENCES users(id),
+    actor_name  TEXT NOT NULL,
     expires_at  TIMESTAMP NOT NULL,
     created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
-
--- Dev seed: insert a test user if none exist.
--- Remove or replace for production.
-INSERT OR IGNORE INTO users (email, name) VALUES ('olliejones88@gmail.com', 'Ollie Jones');
-INSERT OR IGNORE INTO users (email, name) VALUES ('alastair@bosshardmedical.com.au', 'Alastair Peattie');

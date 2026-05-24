@@ -3,30 +3,51 @@ DB access functions. Raw sqlite3 — no ORM.
 Each function takes a connection and returns dicts or raises.
 """
 
+import hashlib
 import json
 import os
+import secrets
 import sqlite3
 from datetime import datetime
 
 
-# ── Users ─────────────────────────────────────────────────────────────────────
+# ── Password (shared, stored as pbkdf2 hash in settings table) ────────────────
 
-def get_user_by_email(conn: sqlite3.Connection, email: str) -> dict | None:
-    row = conn.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
-    return dict(row) if row else None
+def _hash_password(password: str, salt: str | None = None) -> str:
+    if salt is None:
+        salt = secrets.token_hex(16)
+    key = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 100_000)
+    return f"{salt}${key.hex()}"
 
 
-def get_user_by_id(conn: sqlite3.Connection, user_id: int) -> dict | None:
-    row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
-    return dict(row) if row else None
+def verify_password(password: str, stored_hash: str) -> bool:
+    try:
+        salt, _ = stored_hash.split("$", 1)
+        return _hash_password(password, salt) == stored_hash
+    except Exception:
+        return False
+
+
+def get_password_hash(conn: sqlite3.Connection) -> str | None:
+    row = conn.execute(
+        "SELECT value FROM settings WHERE key = 'password_hash'"
+    ).fetchone()
+    return row[0] if row else None
+
+
+def set_password(conn: sqlite3.Connection, password: str):
+    h = _hash_password(password)
+    conn.execute(
+        "INSERT OR REPLACE INTO settings (key, value) VALUES ('password_hash', ?)", (h,)
+    )
 
 
 # ── Sessions ──────────────────────────────────────────────────────────────────
 
-def create_session(conn: sqlite3.Connection, user_id: int, token: str, expires_at: datetime):
+def create_session(conn: sqlite3.Connection, actor_name: str, token: str, expires_at: datetime):
     conn.execute(
-        "INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)",
-        (token, user_id, expires_at.isoformat()),
+        "INSERT INTO sessions (token, actor_name, expires_at) VALUES (?, ?, ?)",
+        (token, actor_name, expires_at.isoformat()),
     )
 
 
@@ -74,14 +95,14 @@ def create_invoice(
     conn: sqlite3.Connection,
     data: dict,
     lines: list[dict],
-    user_id: int,
+    actor_name: str,
 ) -> int:
     invoice_number = next_invoice_number(conn)
     cursor = conn.execute(
         """
         INSERT INTO interim_invoices
             (invoice_number, status, customer_name, customer_email,
-             billing_address, abn, notes, customer_notes, created_by)
+             billing_address, abn, notes, customer_notes, created_by_name)
         VALUES (?, 'draft', ?, ?, ?, ?, ?, ?, ?)
         """,
         (
@@ -92,7 +113,7 @@ def create_invoice(
             data.get("abn") or None,
             data.get("notes") or None,
             data.get("customer_notes") or None,
-            user_id,
+            actor_name,
         ),
     )
     invoice_id = cursor.lastrowid
@@ -121,7 +142,7 @@ def create_invoice(
             ),
         )
 
-    log_event(conn, invoice_id, user_id, "created")
+    log_event(conn, invoice_id, actor_name, "created")
     return invoice_id
 
 
@@ -162,13 +183,7 @@ def invoice_totals(lines: list[dict]) -> dict:
 
 def get_invoice_events(conn: sqlite3.Connection, invoice_id: int) -> list[dict]:
     rows = conn.execute(
-        """
-        SELECT e.*, u.name AS actor_name
-        FROM invoice_events e
-        LEFT JOIN users u ON u.id = e.actor_user_id
-        WHERE e.invoice_id = ?
-        ORDER BY e.created_at
-        """,
+        "SELECT * FROM invoice_events WHERE invoice_id = ? ORDER BY created_at",
         (invoice_id,),
     ).fetchall()
     return [dict(r) for r in rows]
@@ -177,13 +192,13 @@ def get_invoice_events(conn: sqlite3.Connection, invoice_id: int) -> list[dict]:
 def log_event(
     conn: sqlite3.Connection,
     invoice_id: int,
-    actor_user_id: int | None,
+    actor_name: str | None,
     action: str,
     details: dict | None = None,
 ):
     conn.execute(
-        "INSERT INTO invoice_events (invoice_id, actor_user_id, action, details_json) VALUES (?, ?, ?, ?)",
-        (invoice_id, actor_user_id, action, json.dumps(details) if details else None),
+        "INSERT INTO invoice_events (invoice_id, actor_name, action, details_json) VALUES (?, ?, ?, ?)",
+        (invoice_id, actor_name, action, json.dumps(details) if details else None),
     )
 
 

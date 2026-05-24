@@ -1,6 +1,4 @@
-# Bosshard Medical — Pseudo-Invoice Tool
-
-See `../design/CLAUDE.md` for the full spec.
+# Pseudo-Invoice Tool
 
 ## Quick start
 
@@ -23,6 +21,7 @@ is printed to the terminal (look for `[DEV] Magic link:`). Copy and open it.
 
 | Variable | Default | Purpose |
 |---|---|---|
+| `APP_NAME` | `Interim Invoice Tool` | Display name shown in the UI and email subjects |
 | `SECRET_KEY` | `dev-secret-change-me` | Signs magic link tokens — **change for production** |
 | `SMTP_HOST` | _(absent = dev mode)_ | Set to enable email sending |
 | `SMTP_PORT` | `587` | |
@@ -42,12 +41,13 @@ is printed to the terminal (look for `[DEV] Magic link:`). Copy and open it.
 
 | Variable | Value |
 |---|---|
+| `APP_NAME` | Your company or product name |
 | `SECRET_KEY` | Run `openssl rand -hex 32` locally and paste the result |
 | `SMTP_HOST` | Your SMTP provider host |
 | `SMTP_PORT` | `587` |
 | `SMTP_USER` | Your SMTP username |
 | `SMTP_PASSWORD` | Your SMTP password |
-| `SMTP_FROM` | `noreply@bosshardmedical.com.au` |
+| `SMTP_FROM` | Your sending address |
 
 Railway auto-detects the `Dockerfile` and builds from it. Once deployed, Railway assigns a public URL (e.g. `https://pseudo-invoice-production.up.railway.app`).
 
@@ -59,7 +59,7 @@ Railway auto-detects the `Dockerfile` and builds from it. Once deployed, Railway
 fly launch
 fly deploy
 fly secrets set SECRET_KEY=$(openssl rand -hex 32)
-fly secrets set SMTP_HOST=... SMTP_USER=... SMTP_PASSWORD=... SMTP_FROM=...
+fly secrets set APP_NAME="..." SMTP_HOST=... SMTP_USER=... SMTP_PASSWORD=... SMTP_FROM=...
 ```
 
 The SQLite DB file lives at `/app/db/invoices.db` inside the container. Mount a

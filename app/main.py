@@ -9,7 +9,6 @@ from fastapi import FastAPI, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
-from itsdangerous import URLSafeTimedSerializer, SignatureExpired, BadSignature
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from fastapi.exception_handlers import http_exception_handler as _default_handler
 
@@ -17,18 +16,17 @@ from . import models
 
 # ── App setup ─────────────────────────────────────────────────────────────────
 
-app = FastAPI(title="Bosshard Pseudo-Invoice Tool", docs_url=None, redoc_url=None)
+APP_NAME = os.getenv("APP_NAME", "Interim Invoice Tool")
+INVOICE_HEADER_LABEL = os.getenv("INVOICE_HEADER_LABEL", "Payment Request")
+
+app = FastAPI(title=APP_NAME, docs_url=None, redoc_url=None)
 
 BASE_DIR = Path(__file__).parent
 DB_PATH = BASE_DIR.parent / "db" / "invoices.db"
 SCHEMA_PATH = BASE_DIR.parent / "db" / "schema.sql"
 
-SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret-change-me")
-INVOICE_HEADER_LABEL = os.getenv("INVOICE_HEADER_LABEL", "Payment Request")
-
-serializer = URLSafeTimedSerializer(SECRET_KEY)
-
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
+templates.env.globals["app_name"] = APP_NAME
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 
 
@@ -62,27 +60,28 @@ def init_db():
 
 # ── Auth dependency ───────────────────────────────────────────────────────────
 
-def current_user(request: Request):
+def current_user(request: Request) -> dict:
     token = request.cookies.get("session")
     if not token:
-        raise HTTPException(status_code=302, headers={"Location": "/login"})
+        _redirect_unauthenticated()
 
     with db_connection() as conn:
         row = conn.execute(
-            """
-            SELECT u.id, u.email, u.name
-            FROM sessions s
-            JOIN users u ON u.id = s.user_id
-            WHERE s.token = ?
-              AND s.expires_at > CURRENT_TIMESTAMP
-            """,
+            "SELECT actor_name FROM sessions WHERE token = ? AND expires_at > CURRENT_TIMESTAMP",
             (token,),
         ).fetchone()
 
     if not row:
-        raise HTTPException(status_code=302, headers={"Location": "/login"})
+        _redirect_unauthenticated()
 
-    return dict(row)
+    return {"name": row["actor_name"]}
+
+
+def _redirect_unauthenticated():
+    with db_connection() as conn:
+        has_password = models.get_password_hash(conn) is not None
+    dest = "/login" if has_password else "/setup"
+    raise HTTPException(status_code=302, headers={"Location": dest})
 
 
 @app.exception_handler(StarletteHTTPException)
@@ -107,52 +106,80 @@ def healthz():
     return {"status": "ok"}
 
 
-# ── Auth routes ───────────────────────────────────────────────────────────────
+# ── Setup (first-run only) ────────────────────────────────────────────────────
+
+@app.get("/setup", response_class=HTMLResponse)
+def setup_form(request: Request):
+    with db_connection() as conn:
+        if models.get_password_hash(conn) is not None:
+            return RedirectResponse(url="/login")
+    return templates.TemplateResponse(request, "setup.html", {})
+
+
+@app.post("/setup")
+async def setup_submit(request: Request):
+    with db_connection() as conn:
+        if models.get_password_hash(conn) is not None:
+            return RedirectResponse(url="/login", status_code=303)
+
+    form = await request.form()
+    password = form.get("password", "").strip()
+    confirm  = form.get("confirm", "").strip()
+
+    if not password:
+        return templates.TemplateResponse(
+            request, "setup.html", {"error": "Please choose a password."}
+        )
+    if password != confirm:
+        return templates.TemplateResponse(
+            request, "setup.html", {"error": "Passwords don't match."}
+        )
+
+    with db_connection() as conn:
+        models.set_password(conn, password)
+
+    return RedirectResponse(url="/login", status_code=303)
+
+
+# ── Login / logout ────────────────────────────────────────────────────────────
 
 @app.get("/login", response_class=HTMLResponse)
-def login_form(request: Request, sent: str = "", error: str = ""):
-    return templates.TemplateResponse(
-        request, "login.html", {"sent": sent, "error": error}
-    )
+def login_form(request: Request, error: str = ""):
+    with db_connection() as conn:
+        if models.get_password_hash(conn) is None:
+            return RedirectResponse(url="/setup")
+    return templates.TemplateResponse(request, "login.html", {"error": error})
 
 
 @app.post("/login")
-async def login_submit(request: Request, email: str = Form(...)):
+async def login_submit(request: Request):
+    form = await request.form()
+    name     = form.get("name", "").strip()
+    password = form.get("password", "").strip()
+
+    if not name or not password:
+        return templates.TemplateResponse(
+            request, "login.html", {"error": "Please enter your name and the password."}
+        )
+
     with db_connection() as conn:
-        user = models.get_user_by_email(conn, email.strip().lower())
+        stored = models.get_password_hash(conn)
 
-    if user:
-        token = serializer.dumps(user["id"], salt="magic-link")
-        base_url = str(request.base_url).rstrip("/")
-        link = f"{base_url}/auth/{token}"
-        await _send_magic_link(user["email"], link)
-
-    # Don't reveal whether the email exists — always show the same message
-    return RedirectResponse(url="/login?sent=1", status_code=303)
-
-
-@app.get("/auth/{token}")
-def auth_consume(token: str, request: Request):
-    try:
-        user_id = serializer.loads(token, salt="magic-link", max_age=900)
-    except SignatureExpired:
-        return RedirectResponse(url="/login?error=expired")
-    except BadSignature:
-        return RedirectResponse(url="/login?error=invalid")
+    if not stored or not models.verify_password(password, stored):
+        return templates.TemplateResponse(
+            request, "login.html", {"error": "Incorrect password."}
+        )
 
     session_token = secrets.token_urlsafe(32)
     expires_at = datetime.utcnow() + timedelta(days=7)
 
     with db_connection() as conn:
-        models.create_session(conn, user_id, session_token, expires_at)
+        models.create_session(conn, name, session_token, expires_at)
 
     response = RedirectResponse(url="/", status_code=303)
     response.set_cookie(
-        "session",
-        session_token,
-        httponly=True,
-        samesite="lax",
-        max_age=7 * 24 * 3600,
+        "session", session_token,
+        httponly=True, samesite="lax", max_age=7 * 24 * 3600,
     )
     return response
 
@@ -165,31 +192,6 @@ def logout(request: Request, user=Depends(current_user)):
     response = RedirectResponse(url="/login", status_code=303)
     response.delete_cookie("session")
     return response
-
-
-async def _send_magic_link(to_email: str, link: str):
-    smtp_host = os.getenv("SMTP_HOST")
-    if not smtp_host:
-        print(f"\n[DEV] Magic link for {to_email}:\n  {link}\n", flush=True)
-        return
-
-    import aiosmtplib
-    from email.message import EmailMessage
-
-    msg = EmailMessage()
-    msg["From"] = os.getenv("SMTP_FROM", "noreply@bosshardmedical.com.au")
-    msg["To"] = to_email
-    msg["Subject"] = "Your Bosshard Medical login link"
-    msg.set_content(f"Click to log in (expires in 15 minutes):\n\n{link}\n")
-
-    await aiosmtplib.send(
-        msg,
-        hostname=smtp_host,
-        port=int(os.getenv("SMTP_PORT", "587")),
-        username=os.getenv("SMTP_USER"),
-        password=os.getenv("SMTP_PASSWORD"),
-        start_tls=True,
-    )
 
 
 # ── Invoice fragment for HTMX ─────────────────────────────────────────────────
@@ -236,21 +238,21 @@ async def invoice_create(request: Request, user=Depends(current_user)):
     form = await request.form()
 
     data = {
-        "customer_name":    form.get("customer_name", "").strip(),
-        "customer_email":   form.get("customer_email", "").strip(),
-        "billing_address":  form.get("billing_address", "").strip(),
-        "abn":              form.get("abn", "").strip(),
-        "notes":            form.get("notes", "").strip(),
-        "customer_notes":   form.get("customer_notes", "").strip(),
+        "customer_name":   form.get("customer_name", "").strip(),
+        "customer_email":  form.get("customer_email", "").strip(),
+        "billing_address": form.get("billing_address", "").strip(),
+        "abn":             form.get("abn", "").strip(),
+        "notes":           form.get("notes", "").strip(),
+        "customer_notes":  form.get("customer_notes", "").strip(),
     }
 
     if not data["customer_name"]:
         raise HTTPException(400, "Customer name is required")
 
-    descriptions  = form.getlist("description[]")
-    quantities    = form.getlist("quantity[]")
-    unit_prices   = form.getlist("unit_price_ex_gst[]")
-    syrinx_ids    = form.getlist("syrinx_product_id[]")
+    descriptions = form.getlist("description[]")
+    quantities   = form.getlist("quantity[]")
+    unit_prices  = form.getlist("unit_price_ex_gst[]")
+    syrinx_ids   = form.getlist("syrinx_product_id[]")
 
     lines = []
     for i, desc in enumerate(descriptions):
@@ -263,8 +265,8 @@ async def invoice_create(request: Request, user=Depends(current_user)):
         except (ValueError, IndexError):
             continue
         lines.append({
-            "description":      desc,
-            "quantity":         qty,
+            "description":       desc,
+            "quantity":          qty,
             "unit_price_ex_gst": price,
             "syrinx_product_id": syrinx_ids[i] if i < len(syrinx_ids) else "",
         })
@@ -273,7 +275,7 @@ async def invoice_create(request: Request, user=Depends(current_user)):
         raise HTTPException(400, "At least one line item is required")
 
     with db_connection() as conn:
-        invoice_id = models.create_invoice(conn, data, lines, user["id"])
+        invoice_id = models.create_invoice(conn, data, lines, user["name"])
 
     return RedirectResponse(url=f"/invoice/{invoice_id}", status_code=303)
 
@@ -308,8 +310,7 @@ def _assert_transition(invoice: dict, target: str):
     allowed = VALID_TRANSITIONS.get(invoice["status"], [])
     if target not in allowed:
         raise HTTPException(
-            400,
-            f"Cannot move invoice from '{invoice['status']}' to '{target}'",
+            400, f"Cannot move invoice from '{invoice['status']}' to '{target}'"
         )
 
 
@@ -320,11 +321,9 @@ def invoice_issue(invoice_id: int, request: Request, user=Depends(current_user))
         if not invoice:
             raise HTTPException(404)
         _assert_transition(invoice, "issued")
-        models.update_invoice_status(
-            conn, invoice_id, "issued",
-            issued_at=datetime.utcnow().isoformat(),
-        )
-        models.log_event(conn, invoice_id, user["id"], "issued")
+        models.update_invoice_status(conn, invoice_id, "issued",
+                                     issued_at=datetime.utcnow().isoformat())
+        models.log_event(conn, invoice_id, user["name"], "issued")
     return RedirectResponse(url=f"/invoice/{invoice_id}", status_code=303)
 
 
@@ -362,11 +361,9 @@ def invoice_mark_paid(invoice_id: int, request: Request, user=Depends(current_us
         if not invoice:
             raise HTTPException(404)
         _assert_transition(invoice, "paid")
-        models.update_invoice_status(
-            conn, invoice_id, "paid",
-            paid_at=datetime.utcnow().isoformat(),
-        )
-        models.log_event(conn, invoice_id, user["id"], "marked_paid")
+        models.update_invoice_status(conn, invoice_id, "paid",
+                                     paid_at=datetime.utcnow().isoformat())
+        models.log_event(conn, invoice_id, user["name"], "marked_paid")
     return RedirectResponse(url=f"/invoice/{invoice_id}", status_code=303)
 
 
@@ -396,15 +393,11 @@ async def invoice_promote_confirm(invoice_id: int, request: Request, user=Depend
         if not invoice:
             raise HTTPException(404)
         _assert_transition(invoice, "promoted")
-        models.update_invoice_status(
-            conn, invoice_id, "promoted",
-            promoted_at=datetime.utcnow().isoformat(),
-            promoted_syrinx_order_id=syrinx_order_id,
-        )
-        models.log_event(
-            conn, invoice_id, user["id"], "promoted",
-            {"syrinx_order_id": syrinx_order_id},
-        )
+        models.update_invoice_status(conn, invoice_id, "promoted",
+                                     promoted_at=datetime.utcnow().isoformat(),
+                                     promoted_syrinx_order_id=syrinx_order_id)
+        models.log_event(conn, invoice_id, user["name"], "promoted",
+                         {"syrinx_order_id": syrinx_order_id})
     return RedirectResponse(url=f"/invoice/{invoice_id}", status_code=303)
 
 
@@ -420,12 +413,10 @@ async def invoice_void(invoice_id: int, request: Request, user=Depends(current_u
         if not invoice:
             raise HTTPException(404)
         _assert_transition(invoice, "voided")
-        models.update_invoice_status(
-            conn, invoice_id, "voided",
-            voided_at=datetime.utcnow().isoformat(),
-            voided_reason=reason,
-        )
-        models.log_event(conn, invoice_id, user["id"], "voided", {"reason": reason})
+        models.update_invoice_status(conn, invoice_id, "voided",
+                                     voided_at=datetime.utcnow().isoformat(),
+                                     voided_reason=reason)
+        models.log_event(conn, invoice_id, user["name"], "voided", {"reason": reason})
     return RedirectResponse(url=f"/invoice/{invoice_id}", status_code=303)
 
 
