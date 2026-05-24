@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block title %}Promote {{ invoice.invoice_number }} — Bosshard Medical{% endblock %}
+
+{% block content %}
+<div class="mb-6">
+  <a href="/invoice/{{ invoice.id }}" class="text-sm text-gray-500 hover:text-gray-800">&larr; Back to invoice</a>
+  <h1 class="text-2xl font-semibold text-gray-900 mt-2">Promote to Syrinx</h1>
+  <p class="text-gray-500 text-sm mt-1">Enter the details below into Syrinx, then record the order ID here.</p>
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+  {# Checklist for manual Syrinx entry #}
+  <div class="bg-white rounded-lg border border-gray-200 p-6">
+    <h2 class="text-base font-semibold text-gray-900 mb-4">Syrinx entry checklist</h2>
+    <dl class="space-y-3 text-sm">
+      <div>
+        <dt class="text-gray-500 text-xs uppercase tracking-wide">Customer</dt>
+        <dd class="text-gray-900 font-medium mt-0.5">{{ invoice.customer_name }}</dd>
+      </div>
+      {% if invoice.abn %}
+        <div>
+          <dt class="text-gray-500 text-xs uppercase tracking-wide">ABN</dt>
+          <dd class="text-gray-900 font-medium mt-0.5">{{ invoice.abn }}</dd>
+        </div>
+      {% endif %}
+      {% if invoice.billing_address %}
+        <div>
+          <dt class="text-gray-500 text-xs uppercase tracking-wide">Billing address</dt>
+          <dd class="text-gray-900 font-medium mt-0.5 whitespace-pre-line">{{ invoice.billing_address }}</dd>
+        </div>
+      {% endif %}
+      <div>
+        <dt class="text-gray-500 text-xs uppercase tracking-wide">Reference / advice note</dt>
+        <dd class="text-gray-900 font-mono font-medium mt-0.5">{{ invoice.invoice_number }}</dd>
+      </div>
+    </dl>
+
+    <div class="mt-5 border-t border-gray-100 pt-4">
+      <h3 class="text-sm font-semibold text-gray-700 mb-3">Line items</h3>
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="border-b border-gray-200">
+            <th class="text-left py-1 font-medium text-gray-500">Description</th>
+            <th class="text-left py-1 font-medium text-gray-500">Syrinx ID</th>
+            <th class="text-right py-1 font-medium text-gray-500">Qty</th>
+            <th class="text-right py-1 font-medium text-gray-500">Unit (ex GST)</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-100">
+          {% for line in lines %}
+            <tr>
+              <td class="py-1.5 text-gray-900">{{ line.description }}</td>
+              <td class="py-1.5 font-mono text-gray-600">{{ line.syrinx_product_id or "—" }}</td>
+              <td class="py-1.5 text-right text-gray-700">{{ "%.2f"|format(line.quantity|float) }}</td>
+              <td class="py-1.5 text-right text-gray-700">${{ "%.2f"|format(line.unit_price_ex_gst|float) }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  {# Confirm form #}
+  <div class="bg-white rounded-lg border border-gray-200 p-6">
+    <h2 class="text-base font-semibold text-gray-900 mb-2">Record Syrinx order</h2>
+    <p class="text-sm text-gray-500 mb-4">Once you've created the order in Syrinx, enter its order ID below to close this interim invoice.</p>
+
+    <form action="/invoice/{{ invoice.id }}/promote-confirm" method="post" class="space-y-4">
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">
+          Syrinx order ID <span class="text-red-500">*</span>
+        </label>
+        <input type="text" name="syrinx_order_id" required autofocus
+          placeholder="e.g. SO-2025-00123"
+          class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+      </div>
+      <div class="flex gap-3">
+        <button type="submit"
+          class="bg-purple-600 hover:bg-purple-700 text-white font-medium px-5 py-2 rounded text-sm transition-colors">
+          Confirm promotion
+        </button>
+        <a href="/invoice/{{ invoice.id }}" class="text-sm text-gray-500 hover:text-gray-800 self-center">Cancel</a>
+      </div>
+    </form>
+  </div>
+
+</div>
+{% endblock %}

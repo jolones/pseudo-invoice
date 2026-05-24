@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 10pt;
+      color: #1a1a1a;
+      padding: 20mm 20mm 25mm 20mm;
+    }
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 10mm;
+    }
+    .company-name {
+      font-size: 20pt;
+      font-weight: bold;
+      color: #1e3a5f;
+    }
+    .company-details {
+      font-size: 8pt;
+      color: #555;
+      margin-top: 2mm;
+      line-height: 1.5;
+    }
+    .doc-title {
+      text-align: right;
+    }
+    .doc-title h1 {
+      font-size: 18pt;
+      font-weight: bold;
+      color: #1e3a5f;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    .doc-title .invoice-number {
+      font-size: 11pt;
+      color: #444;
+      margin-top: 1mm;
+      font-family: 'Courier New', monospace;
+    }
+    .doc-title .issued-date {
+      font-size: 9pt;
+      color: #666;
+      margin-top: 1mm;
+    }
+    .divider {
+      border: none;
+      border-top: 2px solid #1e3a5f;
+      margin-bottom: 8mm;
+    }
+    .bill-to {
+      margin-bottom: 8mm;
+    }
+    .bill-to .label {
+      font-size: 8pt;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: #888;
+      margin-bottom: 1mm;
+    }
+    .bill-to .name {
+      font-size: 11pt;
+      font-weight: bold;
+    }
+    .bill-to .details {
+      font-size: 9pt;
+      color: #444;
+      line-height: 1.6;
+      margin-top: 1mm;
+    }
+    table.line-items {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 6mm;
+    }
+    table.line-items thead tr {
+      background-color: #1e3a5f;
+      color: white;
+    }
+    table.line-items thead th {
+      padding: 2mm 3mm;
+      text-align: left;
+      font-size: 9pt;
+      font-weight: bold;
+    }
+    table.line-items thead th.right { text-align: right; }
+    table.line-items tbody tr:nth-child(even) {
+      background-color: #f5f7fa;
+    }
+    table.line-items tbody td {
+      padding: 2mm 3mm;
+      font-size: 9pt;
+      border-bottom: 1px solid #e8e8e8;
+    }
+    table.line-items tbody td.right { text-align: right; }
+    .totals {
+      width: 60mm;
+      margin-left: auto;
+      margin-bottom: 8mm;
+    }
+    .totals table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    .totals td {
+      padding: 1mm 2mm;
+      font-size: 9pt;
+    }
+    .totals td.label { color: #555; }
+    .totals td.amount { text-align: right; }
+    .totals tr.total-row {
+      border-top: 2px solid #1e3a5f;
+      font-weight: bold;
+      font-size: 11pt;
+    }
+    .totals tr.total-row td { padding-top: 2mm; color: #1e3a5f; }
+    .customer-notes {
+      background: #f5f7fa;
+      border-left: 3px solid #1e3a5f;
+      padding: 3mm 4mm;
+      font-size: 9pt;
+      color: #444;
+      margin-bottom: 8mm;
+    }
+    .footer {
+      margin-top: 10mm;
+      border-top: 1px solid #ddd;
+      padding-top: 4mm;
+      font-size: 8pt;
+      color: #888;
+      line-height: 1.6;
+    }
+    .not-tax-invoice {
+      font-style: italic;
+      color: #999;
+      font-size: 8pt;
+      margin-top: 4mm;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <div>
+      <div class="company-name">Bosshard Medical</div>
+      <div class="company-details">
+        Sydney, NSW, Australia<br />
+        ABN: [Company ABN]<br />
+        [contact email]
+      </div>
+    </div>
+    <div class="doc-title">
+      <h1>{{ header_label }}</h1>
+      <div class="invoice-number">{{ invoice.invoice_number }}</div>
+      {% if invoice.issued_at %}
+        <div class="issued-date">Date: {{ invoice.issued_at[:10] }}</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <hr class="divider" />
+
+  <div class="bill-to">
+    <div class="label">Bill to</div>
+    <div class="name">{{ invoice.customer_name }}</div>
+    <div class="details">
+      {% if invoice.billing_address %}{{ invoice.billing_address }}<br />{% endif %}
+      {% if invoice.abn %}ABN: {{ invoice.abn }}<br />{% endif %}
+      {% if invoice.customer_email %}{{ invoice.customer_email }}{% endif %}
+    </div>
+  </div>
+
+  <table class="line-items">
+    <thead>
+      <tr>
+        <th>Description</th>
+        <th class="right" style="width:14mm">Qty</th>
+        <th class="right" style="width:28mm">Unit (ex GST)</th>
+        <th class="right" style="width:20mm">GST</th>
+        <th class="right" style="width:28mm">Total (inc GST)</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for line in lines %}
+        <tr>
+          <td>{{ line.description }}</td>
+          <td class="right">{{ "%.2f"|format(line.quantity|float) }}</td>
+          <td class="right">${{ "%.2f"|format(line.unit_price_ex_gst|float) }}</td>
+          <td class="right">${{ "%.2f"|format(line.gst_amount|float) }}</td>
+          <td class="right">${{ "%.2f"|format(line.line_total_inc_gst|float) }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <div class="totals">
+    <table>
+      <tr>
+        <td class="label">Subtotal (ex GST)</td>
+        <td class="amount">${{ "%.2f"|format(totals.subtotal) }}</td>
+      </tr>
+      <tr>
+        <td class="label">GST (10%)</td>
+        <td class="amount">${{ "%.2f"|format(totals.gst) }}</td>
+      </tr>
+      <tr class="total-row">
+        <td class="label">Total (inc GST)</td>
+        <td class="amount">${{ "%.2f"|format(totals.total) }}</td>
+      </tr>
+    </table>
+  </div>
+
+  {% if invoice.customer_notes %}
+    <div class="customer-notes">{{ invoice.customer_notes }}</div>
+  {% endif %}
+
+  <div class="footer">
+    Payment is due upon receipt. Please reference <strong>{{ invoice.invoice_number }}</strong> in your payment.<br />
+    For queries contact Bosshard Medical at [contact email] or [phone].
+  </div>
+
+  <div class="not-tax-invoice">
+    This document is a payment request only and is not a tax invoice.
+    A tax invoice will be issued upon completion of the order.
+  </div>
+
+</body>
+</html>

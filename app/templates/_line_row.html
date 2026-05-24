@@ -1,0 +1,22 @@
+<tr class="line-row">
+  <td class="px-2 py-1">
+    <input type="text" name="description[]" required placeholder="Description"
+      class="w-full border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+  </td>
+  <td class="px-2 py-1">
+    <input type="text" name="syrinx_product_id[]" placeholder="Optional"
+      class="w-full border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+  </td>
+  <td class="px-2 py-1">
+    <input type="number" name="quantity[]" required min="0.01" step="0.01" value="1"
+      class="w-full border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+  </td>
+  <td class="px-2 py-1">
+    <input type="number" name="unit_price_ex_gst[]" required min="0" step="0.01" placeholder="0.00"
+      class="w-full border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+  </td>
+  <td class="px-2 py-1 text-center">
+    <button type="button" onclick="this.closest('tr').remove()"
+      class="text-red-400 hover:text-red-600 text-lg leading-none font-bold" title="Remove row">&times;</button>
+  </td>
+</tr>
