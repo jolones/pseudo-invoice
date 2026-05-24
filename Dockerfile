@@ -6,7 +6,6 @@ RUN apt-get update && apt-get install -y \
     libpangocairo-1.0-0 \
     libpangoft2-1.0-0 \
     libcairo2 \
-    libgdk-pixbuf2.0-0 \
     libharfbuzz0b \
     libfontconfig1 \
     shared-mime-info \
